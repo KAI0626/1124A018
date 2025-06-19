@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 番茄鐘</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@600&display=swap');
+        body {
+            font-family: 'Baloo 2', 'Microsoft JhengHei', cursive, sans-serif;
+            background: linear-gradient(135deg, #ff512f 0%, #dd2476 100%);
+            margin: 0; padding: 0;
+            min-height: 100vh;
+            background-image: url('https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1500&q=80');
+            background-size: cover;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }
+        .container {
+            max-width: 420px;
+            margin: 60px auto 32px auto;
+            background: rgba(255,255,255,0.95);
+            border-radius: 20px;
+            box-shadow: 0 8px 32px rgba(220, 20, 60, 0.18);
+            padding: 36px 28px 28px 28px;
+            border: 2px solid #ff512f;
+            position: relative;
+        }
+        h1 {
+            text-align: center;
+            color: #ff512f;
+            font-family: 'Baloo 2', 'Microsoft JhengHei', cursive, sans-serif;
+            font-size: 2.3rem;
+            letter-spacing: 2px;
+            margin-bottom: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+        }
+        h1::before {
+            content: '\1F345'; /* 番茄icon */
+            font-size: 2.1rem;
+        }
+        #timer {
+            font-size: 3.2rem;
+            color: #dd2476;
+            text-align: center;
+            font-weight: bold;
+            margin: 24px 0 18px 0;
+            letter-spacing: 2px;
+        }
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 18px;
+            margin-bottom: 18px;
+        }
+        .controls button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            background: linear-gradient(90deg, #ff512f 60%, #dd2476 100%);
+            color: #fff;
+            font-size: 1.1rem;
+            font-family: 'Baloo 2', 'Microsoft JhengHei', cursive, sans-serif;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 1px 6px #ff512f44;
+            transition: background 0.2s;
+        }
+        .controls button:active {
+            background: #b71c1c;
+        }
+        #status {
+            text-align: center;
+            color: #dd2476;
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+        }
+        #serialArea {
+            margin: 18px 0 0 0;
+            text-align: center;
+        }
+        #connectBtn {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 10px;
+            background: linear-gradient(90deg, #b39ddb 60%, #7c4dff 100%);
+            color: #fff;
+            font-size: 1rem;
+            font-family: 'Baloo 2', 'Microsoft JhengHei', cursive, sans-serif;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 1px 6px #b39ddb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AI 番茄鐘</h1>
+        <div id="timer">25:00</div>
+        <div class="controls">
+            <button id="startBtn">開始</button>
+            <button id="pauseBtn">暫停</button>
+            <button id="resetBtn">重設</button>
+            <button id="voiceBtn">語音控制</button>
+        </div>
+        <div id="status">請點擊「開始」或用語音說「開始」</div>
+        <div id="serialArea">
+            <button id="connectBtn">連接 Arduino</button>
+            <span id="serialStatus"></span>
+        </div>
+        <div id="reportArea" style="margin-top:24px; padding:18px; background:#f3e5f5; border-radius:12px; color:#6a1b9a; font-size:1.08rem; display:none;"></div>
+    </div>
+    <script>
+let timer = 30; // 30秒測試
+    let interval = null;
+    let running = false;
+    const timerDisplay = document.getElementById('timer');
+    const statusDisplay = document.getElementById('status');
+    const startBtn = document.getElementById('startBtn');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const voiceBtn = document.getElementById('voiceBtn');
+    const connectBtn = document.getElementById('connectBtn');
+    const serialStatus = document.getElementById('serialStatus');
+    let port = null;
+    let writer = null;
+    let pauseCount = 0;
+
+    function updateTimerDisplay() {
+        const m = String(Math.floor(timer / 60)).padStart(2, '0');
+        const s = String(timer % 60).padStart(2, '0');
+        timerDisplay.textContent = `${m}:${s}`;
+    }
+
+    function sendToArduino(cmd) {
+        if (writer) {
+            writer.write(cmd + '\n');
+        }
+    }
+
+    function startTimer() {
+        if (running) return;
+        running = true;
+        statusDisplay.textContent = '番茄鐘進行中...';
+        sendToArduino('START');
+        interval = setInterval(() => {
+            if (timer > 0) {
+                timer--;
+                updateTimerDisplay();
+                sendToArduino('TICK');
+            } else {
+                clearInterval(interval);
+                running = false;
+                statusDisplay.textContent = '時間到！休息一下吧！';
+                sendToArduino('END');
+                generateReport();
+            }
+        }, 1000);
+    }
+
+    function pauseTimer() {
+        if (!running) return;
+        running = false;
+        clearInterval(interval);
+        pauseCount++;
+        statusDisplay.textContent = '已暫停';
+        sendToArduino('PAUSE');
+        generateReport();
+    }
+    function generateReport() {
+        const reportArea = document.getElementById('reportArea');
+        let report = '';
+        if (pauseCount === 0) {
+            report = '太棒了！你這次番茄鐘全程專注，沒有任何暫停，專注力極佳！';
+        } else if (pauseCount <= 2) {
+            report = `本次暫停 ${pauseCount} 次，專注力不錯，建議下次再挑戰更少暫停！`;
+        } else if (pauseCount <= 5) {
+            report = `本次暫停 ${pauseCount} 次，專注力有待加強，可以試著排除干擾，逐步提升專注時長。`;
+        } else {
+            report = `本次暫停 ${pauseCount} 次，建議檢視學習環境與心情，適當休息後再嘗試專注。`;
+        }
+        reportArea.style.display = 'block';
+        reportArea.textContent = 'AI專注狀態報告：' + report;
+    }
+
+    function resetTimer() {
+        running = false;
+        clearInterval(interval);
+        timer = 30;
+        pauseCount = 0;
+        updateTimerDisplay();
+        statusDisplay.textContent = '已重設';
+        sendToArduino('RESET');
+        document.getElementById('reportArea').style.display = 'none';
+    }
+
+    startBtn.onclick = startTimer;
+    pauseBtn.onclick = pauseTimer;
+    resetBtn.onclick = resetTimer;
+
+    // Web Serial API
+    connectBtn.onclick = async () => {
+        try {
+            port = await navigator.serial.requestPort();
+            await port.open({ baudRate: 9600 });
+            writer = port.writable.getWriter();
+            serialStatus.textContent = '已連接';
+            serialStatus.style.color = '#43a047';
+        } catch (e) {
+            serialStatus.textContent = '連接失敗';
+            serialStatus.style.color = '#b71c1c';
+        }
+    };
+
+    // 語音辨識
+    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.lang = 'zh-TW';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    voiceBtn.onclick = () => {
+        recognition.start();
+        statusDisplay.textContent = '請說出「開始」、「暫停」或「重設」';
+    };
+
+    recognition.onresult = (event) => {
+        if (event.results[0].isFinal) {
+            const transcript = event.results[0][0].transcript.trim();
+            if (transcript.includes('開始')) startTimer();
+            else if (transcript.includes('暫停')) pauseTimer();
+            else if (transcript.includes('重設')) resetTimer();
+            else statusDisplay.textContent = '無法辨識指令，請再試一次。';
+        }
+    };
+    recognition.onerror = (event) => {
+        statusDisplay.textContent = '語音辨識錯誤，請再試一次。';
+    };
+
+    updateTimerDisplay();
+    </script>
+</body>
+</html>
